@@ -114,15 +114,18 @@ func (koiProc *KoiProc) Run() error {
 		}(scanner)
 	}
 
-	// Start and wait process
-	err = koiProc.cmd.Start()
+	// Run process
+	err = koiProc.cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
-	}
-	err = koiProc.cmd.Wait()
-	if err != nil {
-		return fmt.Errorf("process failed: %w", err)
+		// Here err is likely to be an ExitError,
+		// Which is normal (killed by god daemon).
+		// No need to wrap this error.
+		return err
 	}
 
 	return nil
+}
+
+func (koiProc *KoiProc) Kill() error {
+	return koiProc.cmd.Process.Kill()
 }
