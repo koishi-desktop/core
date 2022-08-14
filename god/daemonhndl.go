@@ -1,6 +1,7 @@
 package god
 
 import (
+	"context"
 	"fmt"
 	"github.com/mitchellh/mapstructure"
 	"github.com/samber/do"
@@ -10,6 +11,7 @@ import (
 	"gopkg.ilharper.com/koi/core/logger"
 	"gopkg.ilharper.com/koi/core/util/di"
 	"gopkg.ilharper.com/koi/core/util/net"
+	"net/http"
 )
 
 // Handle request.
@@ -20,6 +22,13 @@ func buildHandle(i *do.Injector, daemon *Daemon) func(ws *websocket.Conn) {
 	return func(ws *websocket.Conn) {
 		var err error
 
+		defer func(ws *websocket.Conn) {
+			closeErr := ws.Close()
+			if closeErr != nil {
+				l.Error(fmt.Errorf("failed to close ws connection: %w", closeErr))
+			}
+		}(ws)
+
 		var request proto.Request
 		err = net.JSON.Receive(ws, &request)
 		if err != nil {
@@ -28,11 +37,24 @@ func buildHandle(i *do.Injector, daemon *Daemon) func(ws *websocket.Conn) {
 		}
 
 		switch request.Type {
+		case "ping":
+			err = net.JSON.Send(ws, proto.NewResponse("pong", nil))
+			if err != nil {
+				l.Error(fmt.Errorf("failed to send 'pong': %w", err))
+			}
+			return
+		case "stop":
+			err = do.MustInvoke[*http.Server](i).Shutdown(context.Background())
+			if err != nil {
+				l.Error(fmt.Errorf("failed to close http server: %w", err))
+			}
+			return
 		case proto.TypeRequestCommand:
 			var commandRequest proto.CommandRequest
 			err = mapstructure.Decode(request.Data, &commandRequest)
 			if err != nil {
 				l.Error(fmt.Errorf("failed to parse command: %w", err))
+				return
 			}
 			err = handleCommand(i, daemon, ws, &commandRequest)
 			if err != nil {
@@ -67,7 +89,6 @@ func handleCommand(
 
 	// Build Response channel
 	ch := make(chan *proto.Response)
-	defer close(ch)
 	do.ProvideNamedValue(scopedI, koicmd.ServiceKoiCmdResponseChan, ch)
 
 	// Build RPL Response Sender
@@ -87,34 +108,33 @@ func handleCommand(
 		return fmt.Errorf("unknown command: %s", command.Name)
 	}
 
-	// Start sending response
-	go func(
-		localL1 *logger.Logger,
-		ws1 *websocket.Conn,
-		ch1 <-chan *proto.Response,
-	) {
-		for {
-			resp := <-ch1
-			if resp == nil {
-				err := ws1.Close()
-				if err != nil {
-					localL1.Error(fmt.Errorf("failed to close ws connection: %w", err))
-				}
+	send := make(chan bool)
 
+	// Start sending response
+	go func() {
+		for {
+			resp := <-ch
+			if resp == nil {
+				close(send)
 				break
 			}
 
-			err := net.JSON.Send(ws1, resp)
+			err := net.JSON.Send(ws, resp)
 			if err != nil {
-				localL1.Error(fmt.Errorf("failed to send response: %w", err))
+				localL.Error(fmt.Errorf("failed to send response: %w", err))
 			}
 		}
-	}(localL, ws, ch)
+	}()
 
 	// Invoke command
 	response := kCmd(scopedI)
 	if response != nil {
 		ch <- response
 	}
+	close(ch)
+
+	// Wait the final send finish
+	<-send
+
 	return nil
 }

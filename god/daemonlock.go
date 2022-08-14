@@ -1,6 +1,11 @@
 package god
 
+const (
+	DaemonEndpoint = "/api"
+)
+
 type DaemonLock struct {
 	Pid  int    `json:"pid" mapstructure:"pid"`
-	Addr string `json:"addr" mapstructure:"addr"`
+	Host string `json:"host" mapstructure:"host"`
+	Port string `json:"port" mapstructure:"port"`
 }
