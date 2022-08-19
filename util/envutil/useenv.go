@@ -2,14 +2,13 @@ package envutil
 
 import (
 	"fmt"
+	"strings"
+
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"strings"
 )
 
-var (
-	titleCaser = cases.Title(language.AmericanEnglish)
-)
+var titleCaser = cases.Title(language.AmericanEnglish)
 
 func UseEnv(env *[]string, key string, value string) {
 	RemoveEnv(env, key)
