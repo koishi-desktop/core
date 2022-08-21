@@ -16,13 +16,14 @@ import (
 
 // Handle request.
 // Here's already a new goroutine started by [websocket.Handler].
-func buildHandle(i *do.Injector, daemon *Daemon) func(ws *websocket.Conn) {
+func buildHandle(i *do.Injector, daemon *daemonService) func(ws *websocket.Conn) {
 	l := do.MustInvoke[*logger.Logger](i)
 
 	return func(ws *websocket.Conn) {
 		var err error
 
-		l.Debugf("Client connected at %s", ws.RemoteAddr())
+		remoteAddr := ws.Request().RemoteAddr
+		l.Debugf("Client connected at %s", remoteAddr)
 
 		defer func(ws *websocket.Conn) {
 			closeErr := ws.Close()
@@ -48,6 +49,11 @@ func buildHandle(i *do.Injector, daemon *Daemon) func(ws *websocket.Conn) {
 			l.Debug("Send pong back")
 			return
 		case "stop":
+			l.Infof("Stopping god daemon as request of %s...", remoteAddr)
+			err = net.JSON.Send(ws, proto.NewSuccessResult(nil))
+			if err != nil {
+				l.Error(fmt.Errorf("failed to send stop response: %w", err))
+			}
 			err = do.MustInvoke[*http.Server](i).Shutdown(context.Background())
 			if err != nil {
 				l.Error(fmt.Errorf("failed to close http server: %w", err))
@@ -76,7 +82,7 @@ func buildHandle(i *do.Injector, daemon *Daemon) func(ws *websocket.Conn) {
 
 func handleCommand(
 	i *do.Injector,
-	daemon *Daemon,
+	daemon *daemonService,
 	ws *websocket.Conn,
 	command *proto.CommandRequest,
 ) error {
@@ -88,6 +94,10 @@ func handleCommand(
 	// Acquire Task
 	daemon.tasks.Acquire(scopedI)
 	task := do.MustInvoke[*Task](scopedI)
+	defer func() {
+		localL.Debugf("Releasing task %d", task.Id)
+		daemon.tasks.Release(scopedI)
+	}()
 
 	localL.Debugf("Acquired task %d", task.Id)
 
@@ -142,8 +152,11 @@ func handleCommand(
 		ch <- response
 	}
 
-	// l.Close() must invoke synchronously before ch closed
-	l.Close()
+	// Close ResponseSender here.
+	// DO NOT call l.Close(), as it will close
+	// KoiFileTarget the same time, which is used by localL.
+	// Also, this must invoke synchronously before ch closed.
+	do.MustInvoke[*logger.ResponseSender](scopedI).Close()
 	ch <- nil
 
 	// Wait the final send finish

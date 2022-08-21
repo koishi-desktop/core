@@ -12,6 +12,7 @@ import (
 	"gopkg.ilharper.com/koi/core/koierr"
 	"gopkg.ilharper.com/koi/core/logger"
 	"gopkg.ilharper.com/koi/core/util/compress"
+	"gopkg.ilharper.com/koi/core/util/instance"
 )
 
 func koiCmdImport(i *do.Injector) *proto.Response {
@@ -42,14 +43,14 @@ func koiCmdImport(i *do.Injector) *proto.Response {
 
 	// Auto generate name
 	if name == "" {
-		name, err = generateInstanceName(i)
+		name, err = instance.GenerateInstanceName(i)
 		if err != nil {
 			return proto.NewErrorResult(koierr.NewErrInternalError(err))
 		}
 	}
 
 	targetPath := filepath.Join(config.Computed.DirInstance, name)
-	exists, err := isInstanceExists(i, name)
+	exists, err := instance.IsInstanceExists(i, name)
 	if err != nil {
 		return proto.NewErrorResult(koierr.NewErrInternalError(err))
 	}
@@ -75,5 +76,7 @@ func koiCmdImport(i *do.Injector) *proto.Response {
 		return proto.NewErrorResult(koierr.NewErrInternalError(fmt.Errorf("failed to unzip %s: %w", path, err)))
 	}
 
-	return proto.NewErrorResult(koierr.ErrSuccess)
+	l.Successf("Done. Your new instance: %s\nAt: %s", name, targetPath)
+
+	return proto.NewSuccessResult(nil)
 }
