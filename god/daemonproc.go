@@ -105,11 +105,12 @@ func (daemonProc *daemonProcess) startIntl(name string) error {
 	koiProc = proc.NewYarnProc(
 		daemonProc.i,
 		deltaCh+uint16(index),
-		[]string{"start"},
+		[]string{"koishi", "start"},
 		filepath.Join(cfg.Computed.DirInstance, name),
 	)
 	daemonProc.reg[index] = koiProc
 
+	koiProc.Register(do.MustInvoke[*logger.KoiFileTarget](daemonProc.i))
 	koiProc.HookOutput = func(msg string) {
 		go func() {
 			if strings.Contains(msg, " server listening at ") {
