@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/goccy/go-json"
 	"github.com/samber/do"
@@ -63,10 +64,10 @@ func Daemon(i *do.Injector) error {
 		// daemon.lock exists
 		pid, aliveErr := checkDaemonAlive(daemonLockPath)
 		if aliveErr == nil {
-			return fmt.Errorf("god daemon running, PID=%d\nCannot start another god daemon when there's already one.\nIf that daemon crashes, use 'koi daemon' to fix it.\nIf you just want to restart daemon, use 'koi daemon restart'.", pid)
-		} else {
-			_ = os.Remove(daemonLockPath)
+			return fmt.Errorf("god daemon running, PID=%d\nCannot start another god daemon when there's already one.\nIf that daemon crashes, use 'koi daemon' to fix it.\nIf you just want to restart daemon, use 'koi daemon restart'", pid)
 		}
+
+		_ = os.Remove(daemonLockPath)
 	}
 
 	// daemon.lock does not exist. Writing
@@ -85,11 +86,11 @@ func Daemon(i *do.Injector) error {
 		Host: host,
 		Port: port,
 	}
-	daemonLockJson, err := json.Marshal(daemonLock)
+	daemonLockJSON, err := json.Marshal(daemonLock)
 	if err != nil {
 		return fmt.Errorf("failed to generate daemon lock data: %w", err)
 	}
-	_, err = lock.Write(daemonLockJson)
+	_, err = lock.Write(daemonLockJSON)
 	if err != nil {
 		return fmt.Errorf("failed to write daemon lock data: %w", err)
 	}
@@ -104,14 +105,19 @@ func Daemon(i *do.Injector) error {
 	mux := http.NewServeMux()
 	mux.Handle(DaemonEndpoint, service.Handler)
 
-	server := &http.Server{Addr: addr, Handler: mux}
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+
+		ReadTimeout:       3 * time.Second,
+		ReadHeaderTimeout: 3 * time.Second,
+		WriteTimeout:      3 * time.Second,
+	}
 	do.ProvideValue(i, server)
 	l.Debug("Serving daemon...")
 	err = server.Serve(listener)
-	if errors.Is(err, http.ErrServerClosed) {
-		err = nil
-	} else {
-		err = fmt.Errorf("daemon closed: %w", err)
+	if !(errors.Is(err, http.ErrServerClosed)) {
+		return fmt.Errorf("daemon closed: %w", err)
 	}
 
 	return nil

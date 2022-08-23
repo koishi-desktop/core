@@ -1,3 +1,4 @@
+//nolint:wrapcheck
 package compress
 
 import (
@@ -37,11 +38,10 @@ func ExtractZipFile(src string, dest string) error {
 func extractZipFileIntl(dest string, f *zip.File) error {
 	var err error
 
-	if !validRelPath(f.Name) {
-		return fmt.Errorf("zipslip file detected: %s", f.Name)
+	path, err := sanitizeArchivePath(dest, f.Name)
+	if err != nil {
+		return err
 	}
-
-	path := filepath.Join(dest, f.Name)
 
 	if f.FileInfo().IsDir() {
 		err = os.MkdirAll(path, f.Mode())
@@ -70,7 +70,7 @@ func extractZipFileIntl(dest string, f *zip.File) error {
 			_ = reader.Close()
 		}()
 
-		_, err = io.Copy(file, reader)
+		_, err = io.Copy(file, reader) //nolint:gosec
 		if err != nil {
 			return err
 		}

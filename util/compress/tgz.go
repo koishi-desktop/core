@@ -3,6 +3,7 @@ package compress
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,16 +42,12 @@ func ExtractTgz(src io.Reader, dest string, strip bool) error {
 
 	for {
 		f, err := tReader.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 
 		if err != nil {
 			return fmt.Errorf("tar reading error: %w", err)
-		}
-
-		if !validRelPath(f.Name) {
-			return fmt.Errorf("zipslip file detected: %s", f.Name)
 		}
 
 		if f.Typeflag != tar.TypeDir {
@@ -71,7 +68,10 @@ func ExtractTgz(src io.Reader, dest string, strip bool) error {
 				}
 			}
 
-			name := filepath.Join(dest, rel)
+			name, err := sanitizeArchivePath(dest, rel)
+			if err != nil {
+				return err
+			}
 			dir := filepath.Dir(name)
 			err = os.MkdirAll(dir, os.ModePerm)
 			if err != nil {
@@ -82,7 +82,7 @@ func ExtractTgz(src io.Reader, dest string, strip bool) error {
 			if err != nil {
 				return fmt.Errorf("failed to create %s: %w", name, err)
 			}
-			_, err = io.Copy(file, tReader)
+			_, err = io.Copy(file, tReader) //nolint:gosec
 			if err != nil {
 				return fmt.Errorf("failed to write %s: %w", name, err)
 			}

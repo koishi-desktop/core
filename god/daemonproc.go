@@ -36,7 +36,7 @@ type daemonProcess struct {
 
 func newDaemonProcess(i *do.Injector) (*daemonProcess, error) {
 	return &daemonProcess{
-		i: i,
+		i:       i,
 		nameReg: make(map[string]uint8),
 	}, nil
 }
@@ -59,10 +59,12 @@ func (daemonProc *daemonProcess) init() error {
 		exists, existsErr := instance.IsInstanceExists(daemonProc.i, name)
 		if existsErr != nil {
 			l.Warnf("Failed to check instance %s: %s", name, existsErr.Error())
+
 			continue
 		}
 		if !exists {
 			l.Warnf("Instance %s doesn't exist. Skipped.", name)
+
 			continue
 		}
 
@@ -114,8 +116,8 @@ func (daemonProc *daemonProcess) startIntl(name string) error {
 	koiProc.HookOutput = func(msg string) {
 		go func() {
 			if strings.Contains(msg, " server listening at ") {
-				s := msg[strings.Index(msg, "http"):]
-				s = s[:strings.Index(s, strutil.ColorStartCtr)]
+				s := msg[strings.Index(msg, "http"):]           //nolint:gocritic
+				s = s[:strings.Index(s, strutil.ColorStartCtr)] //nolint:gocritic
 				l.Debugf("Parsed %s. Try opening browser.", s)
 				err := browser.OpenURL(s)
 				if err != nil {
@@ -161,7 +163,7 @@ func (daemonProc *daemonProcess) Stop(name string) error {
 
 // Must ensure lock before calling this method.
 func (daemonProc *daemonProcess) stopIntl(name string) error {
-	return daemonProc.reg[daemonProc.nameReg[name]].Stop()
+	return daemonProc.reg[daemonProc.nameReg[name]].Stop() //nolint:wrapcheck
 }
 
 func (daemonProc *daemonProcess) Shutdown() error {
@@ -195,5 +197,6 @@ func (daemonProc *daemonProcess) getIndex(name string) uint8 {
 		index++
 	}
 	daemonProc.nameReg[name] = index
+
 	return index
 }

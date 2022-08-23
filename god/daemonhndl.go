@@ -36,6 +36,7 @@ func buildHandle(i *do.Injector, daemon *daemonService) func(ws *websocket.Conn)
 		err = net.JSON.Receive(ws, &request)
 		if err != nil {
 			l.Error(fmt.Errorf("failed to parse JSON request: %w", err))
+
 			return
 		}
 		l.Debugf("Parsed request type: %s", request.Type)
@@ -47,6 +48,7 @@ func buildHandle(i *do.Injector, daemon *daemonService) func(ws *websocket.Conn)
 				l.Error(fmt.Errorf("failed to send 'pong': %w", err))
 			}
 			l.Debug("Send pong back")
+
 			return
 		case "stop":
 			l.Infof("Stopping god daemon as request of %s...", remoteAddr)
@@ -58,12 +60,14 @@ func buildHandle(i *do.Injector, daemon *daemonService) func(ws *websocket.Conn)
 			if err != nil {
 				l.Error(fmt.Errorf("failed to close http server: %w", err))
 			}
+
 			return
 		case proto.TypeRequestCommand:
 			var commandRequest proto.CommandRequest
 			err = mapstructure.Decode(request.Data, &commandRequest)
 			if err != nil {
 				l.Error(fmt.Errorf("failed to parse command: %w", err))
+
 				return
 			}
 			l.Debugf("Parsed command: %s", commandRequest.Name)
@@ -72,9 +76,11 @@ func buildHandle(i *do.Injector, daemon *daemonService) func(ws *websocket.Conn)
 			if err != nil {
 				l.Error(err)
 			}
+
 			return
 		default:
 			l.Errorf("unknown request type: %s", request.Type)
+
 			return
 		}
 	}
@@ -95,15 +101,15 @@ func handleCommand(
 	daemon.tasks.Acquire(scopedI)
 	task := do.MustInvoke[*Task](scopedI)
 	defer func() {
-		localL.Debugf("Releasing task %d", task.Id)
+		localL.Debugf("Releasing task %d", task.ID)
 		daemon.tasks.Release(scopedI)
 	}()
 
-	localL.Debugf("Acquired task %d", task.Id)
+	localL.Debugf("Acquired task %d", task.ID)
 
 	// Build remote procedure Logger
 	// Then override Logger
-	do.Override(scopedI, logger.BuildNewLogger(uint16(task.Id)))
+	do.Override(scopedI, logger.BuildNewLogger(uint16(task.ID)))
 
 	// Build Response channel
 	ch := make(chan *proto.Response)
@@ -136,6 +142,7 @@ func handleCommand(
 			resp := <-ch
 			if resp == nil {
 				close(send)
+
 				break
 			}
 
