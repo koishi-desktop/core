@@ -11,14 +11,24 @@ import (
 	"gopkg.ilharper.com/koi/core/koiconfig"
 	"gopkg.ilharper.com/koi/core/logger"
 	"gopkg.ilharper.com/koi/core/proc"
+	"gopkg.ilharper.com/koi/core/ui/webview"
 	"gopkg.ilharper.com/koi/core/util/instance"
 	"gopkg.ilharper.com/koi/core/util/strutil"
-	"gopkg.ilharper.com/x/browser"
 )
 
 const deltaCh uint16 = 1000
 
 var ErrAlreadyStarted = errors.New("instance already started")
+
+type dProc struct {
+	koiProc *proc.KoiProc
+	listen  string
+}
+
+type DProcMeta struct {
+	Pid    int
+	Listen string
+}
 
 type DaemonProcess struct {
 	// The mutex lock.
@@ -30,7 +40,7 @@ type DaemonProcess struct {
 
 	i *do.Injector
 
-	reg     [256]*proc.KoiProc
+	reg     [256]*dProc
 	nameReg map[string]uint8
 }
 
@@ -99,40 +109,38 @@ func (daemonProc *DaemonProcess) startIntl(name string) error {
 
 	index := daemonProc.getIndex(name)
 
-	koiProc := daemonProc.reg[index]
-	if koiProc != nil {
+	dp := daemonProc.reg[index]
+	if dp != nil {
 		return ErrAlreadyStarted
 	}
 
-	koiProc = proc.NewYarnProc(
-		daemonProc.i,
-		deltaCh+uint16(index),
-		[]string{"koishi", "start"},
-		filepath.Join(cfg.Computed.DirInstance, name),
-	)
-	daemonProc.reg[index] = koiProc
+	dp = &dProc{
+		koiProc: proc.NewYarnProc(
+			daemonProc.i,
+			deltaCh+uint16(index),
+			[]string{"koishi", "start"},
+			filepath.Join(cfg.Computed.DirInstance, name),
+		),
+	}
+	daemonProc.reg[index] = dp
 
-	koiProc.Register(do.MustInvoke[*logger.KoiFileTarget](daemonProc.i))
+	dp.koiProc.Register(do.MustInvoke[*logger.KoiFileTarget](daemonProc.i))
 
-	if cfg.Data.Open {
-		koiProc.HookOutput = func(msg string) {
-			go func() {
-				if strings.Contains(msg, " server listening at ") {
-					s := msg[strings.Index(msg, "http"):]           //nolint:gocritic
-					s = s[:strings.Index(s, strutil.ColorStartCtr)] //nolint:gocritic
-					l.Debugf("Parsed %s. Try opening browser.", s)
-					err := browser.OpenURL(s)
-					if err != nil {
-						l.Warnf("cannot open browser: %s", err.Error())
-					}
-				}
-			}()
-		}
+	dp.koiProc.HookOutput = func(msg string) {
+		go func() {
+			if strings.Contains(msg, " server listening at ") {
+				listen := msg[strings.Index(msg, "http"):]                     //nolint:gocritic
+				listen = listen[:strings.Index(listen, strutil.ColorStartCtr)] //nolint:gocritic
+				l.Debugf("Parsed %s.", listen)
+				dp.listen = listen
+				webview.Open(daemonProc.i, name, listen)
+			}
+		}()
 	}
 
 	daemonProc.wg.Add(1)
 	go func() {
-		err := koiProc.Run()
+		err := dp.koiProc.Run()
 		if err == nil {
 			l.Infof("Instance %s exited.", name)
 		} else {
@@ -166,17 +174,17 @@ func (daemonProc *DaemonProcess) Stop(name string) error {
 
 // Must ensure lock before calling this method.
 func (daemonProc *DaemonProcess) stopIntl(name string) error {
-	return daemonProc.reg[daemonProc.nameReg[name]].Stop() //nolint:wrapcheck
+	return daemonProc.reg[daemonProc.nameReg[name]].koiProc.Stop() //nolint:wrapcheck
 }
 
 func (daemonProc *DaemonProcess) Shutdown() error {
 	daemonProc.mutex.Lock()
 
-	for _, koiProc := range daemonProc.reg {
-		if koiProc != nil {
-			err := koiProc.Stop()
+	for _, dp := range daemonProc.reg {
+		if dp != nil {
+			err := dp.koiProc.Stop()
 			if err != nil {
-				_ = koiProc.Kill()
+				_ = dp.koiProc.Kill()
 			}
 		}
 	}
@@ -211,9 +219,26 @@ func (daemonProc *DaemonProcess) GetPid(name string) int {
 	daemonProc.mutex.Lock()
 	defer daemonProc.mutex.Unlock()
 
-	koiProc := daemonProc.reg[daemonProc.getIndex(name)]
-	if koiProc == nil {
+	dp := daemonProc.reg[daemonProc.getIndex(name)]
+	if dp == nil {
 		return 0
 	}
-	return koiProc.Pid()
+	return dp.koiProc.Pid()
+}
+
+// GetMeta find and return meta info of instance.
+//
+// Returns nil if instance is not running.
+func (daemonProc *DaemonProcess) GetMeta(name string) *DProcMeta {
+	daemonProc.mutex.Lock()
+	defer daemonProc.mutex.Unlock()
+
+	dp := daemonProc.reg[daemonProc.getIndex(name)]
+	if dp == nil {
+		return nil
+	}
+	return &DProcMeta{
+		Pid:    dp.koiProc.Pid(),
+		Listen: dp.listen,
+	}
 }
