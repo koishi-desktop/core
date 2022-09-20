@@ -90,7 +90,7 @@ func (daemonProc *DaemonProcess) Init() error {
 func (daemonProc *DaemonProcess) Start(name string) error {
 	exists, existsErr := instance.IsInstanceExists(daemonProc.i, name)
 	if existsErr != nil {
-		return existsErr
+		return fmt.Errorf("check instance %s status failed: %w", name, existsErr)
 	}
 	if !exists {
 		return fmt.Errorf("instance %s dows not exist", name)
@@ -160,7 +160,7 @@ func (daemonProc *DaemonProcess) startIntl(name string) error {
 func (daemonProc *DaemonProcess) Stop(name string) error {
 	exists, existsErr := instance.IsInstanceExists(daemonProc.i, name)
 	if existsErr != nil {
-		return existsErr
+		return fmt.Errorf("check instance %s status failed: %w", name, existsErr)
 	}
 	if !exists {
 		return fmt.Errorf("instance %s dows not exist", name)
@@ -178,12 +178,17 @@ func (daemonProc *DaemonProcess) stopIntl(name string) error {
 }
 
 func (daemonProc *DaemonProcess) Shutdown() error {
+	l := do.MustInvoke[*logger.Logger](daemonProc.i)
+
+	l.Debug("Shutting down DaemonProcess.")
+
 	daemonProc.mutex.Lock()
 
 	for _, dp := range daemonProc.reg {
 		if dp != nil {
 			err := dp.koiProc.Stop()
 			if err != nil {
+				l.Debugf("failed to gracefully stop process %d: %v. Trying kill", dp.koiProc.Pid(), err)
 				_ = dp.koiProc.Kill()
 			}
 		}
@@ -223,6 +228,7 @@ func (daemonProc *DaemonProcess) GetPid(name string) int {
 	if dp == nil {
 		return 0
 	}
+
 	return dp.koiProc.Pid()
 }
 
@@ -237,6 +243,7 @@ func (daemonProc *DaemonProcess) GetMeta(name string) *DProcMeta {
 	if dp == nil {
 		return nil
 	}
+
 	return &DProcMeta{
 		Pid:    dp.koiProc.Pid(),
 		Listen: dp.listen,
